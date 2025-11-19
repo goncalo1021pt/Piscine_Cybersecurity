@@ -39,12 +39,10 @@ fn find_images(html: &str, base_url: &str) -> Result<Vec<String>, Box<dyn std::e
 	let mut img_urls = Vec::new();
 
 	for element in document.select(&img_selector) {
-		// Try both src and srcset attributes
 		let src = element.value().attr("src")
 			.or_else(|| element.value().attr("data-src"));
 			
 		if let Some(src) = src {
-			// Skip data URLs and empty strings
 			if src.starts_with("data:") || src.is_empty() {
 				continue;
 			}
@@ -61,15 +59,12 @@ fn find_images(html: &str, base_url: &str) -> Result<Vec<String>, Box<dyn std::e
 fn is_valid_image(url: &str) -> bool {
 	let lower_url = url.to_lowercase();
 	
-	// Must end with one of our extensions
 	let valid_extensions = [".jpg", ".jpeg", ".png", ".gif", ".bmp"];
 	let has_valid_ext = valid_extensions.iter().any(|ext| {
-		// Check if URL ends with extension (before query params)
 		lower_url.split('?').next().unwrap_or("").ends_with(ext)
 	});
 	
-	// Skip SVG-based files and tiny thumbnails
-	if lower_url.contains(".svg") || lower_url.contains("thumb") {
+	if lower_url.contains(".svg") {
 		return false;
 	}
 	
@@ -82,11 +77,33 @@ fn download_image(url: &str, path: &PathBuf) -> Result<(), Box<dyn std::error::E
 
 	fs::create_dir_all(path)?;
 
-	let response = reqwest::blocking::get(url)?;
+	let client = reqwest::blocking::Client::builder()
+		.user_agent("Mozilla/5.0 (Spider/1.0)")
+		.build()?;
+	
+	let response = client.get(url).send()?;
 	let bytes = response.bytes()?;
 
-	let filename = url.split('/').last().unwrap_or("image");
-	let filepath = path.join(filename);
+	let mut filename = url.split('/').last().unwrap_or("image").to_string();
+	
+	if let Some(pos) = filename.find('?') {
+		filename.truncate(pos);
+	}
+	
+	filename = urlencoding::decode(&filename)?.into_owned();
+	
+	const MAX_LEN: usize = 200;
+	if filename.len() > MAX_LEN {
+		if let Some(ext_pos) = filename.rfind('.') {
+			let ext = &filename[ext_pos..];
+			let name_part = &filename[..MAX_LEN.saturating_sub(ext.len())];
+			filename = format!("{}{}", name_part, ext);
+		} else {
+			filename.truncate(MAX_LEN);
+		}
+	}
+	
+	let filepath = path.join(&filename);
 
 	let mut file = fs::File::create(&filepath)?;
 	file.write_all(&bytes)?;
@@ -102,7 +119,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 	
 	let images = find_images(&html, &args.url)?;
 	
-	// Filter for valid image extensions
 	let valid_images: Vec<String> = images.into_iter()
 		.filter(|url| is_valid_image(url))
 		.collect();
