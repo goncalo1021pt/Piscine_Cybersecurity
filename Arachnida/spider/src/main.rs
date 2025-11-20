@@ -12,7 +12,7 @@ struct Args {
 	recursive: bool,
 
 	/// Maximum recursion level
-	#[arg(short = 'l', long, default_value = "5")]
+	#[arg(short = 'l', long, default_value = "5", requires = "recursive")]
 	level: usize,
 
 	#[arg(short = 'p', long, default_value = "./data/")]
@@ -110,23 +110,91 @@ fn download_image(url: &str, path: &PathBuf) -> Result<(), Box<dyn std::error::E
 	Ok(())
 }
 
-fn main() -> Result<(), Box<dyn std::error::Error>> {
-	let args = Args::parse();
-	println!("Fetching: {}", args.url);
+fn find_links(html: &str, base_url: &str) -> Result<Vec<String>, Box<dyn std::error::Error>> {
+	use scraper::{Html, Selector};
+	use url::Url;
 
-	let html = fetch_html(&args.url)?;
-	println!("Downloaded {} bytes", html.len());
+	let document = Html::parse_document(html);
+	let link_selector = Selector::parse("a").unwrap();
+	let base = Url::parse(base_url)?;
+
+	let mut links = Vec::new();
+
+	for element in document.select(&link_selector) {
+		if let Some(href) = element.value().attr("href") {
+			if let Ok(absolute_url) = base.join(href) {
+				if absolute_url.domain() == base.domain() {
+					links.push(absolute_url.to_string());
+				}
+			}
+		}
+	}
+	Ok(links)
+}
+
+fn crawl_recursive(url: &str,
+	depth: usize,
+	max_depth: usize,
+	visited: &mut std::collections::HashSet<String>,
+	save_path: &PathBuf,
+) -> Result<(), Box<dyn std::error::Error>> {
 	
-	let images = find_images(&html, &args.url)?;
+	if depth > max_depth || visited.contains(url) {
+		return Ok(());
+	}
 	
+	visited.insert(url.to_string());
+	println!("\n[Depth {}] Crawling: {}", depth, url);
+	
+	let html = fetch_html(url)?;
+	let images = find_images(&html, url)?;
 	let valid_images: Vec<String> = images.into_iter()
-		.filter(|url| is_valid_image(url))
+		.filter(|u| is_valid_image(u))
 		.collect();
 	
-	println!("Found {} valid images:", valid_images.len());
+	println!("Found {} images", valid_images.len());
 	for img_url in &valid_images {
-		println!("  {}", img_url);
-		download_image(img_url, &args.path)?;
+		if let Err(e) = download_image(img_url, save_path) {
+			eprintln!("Failed to download {}: {}", img_url, e);
+		}
 	}
+	
+	if depth < max_depth {
+		let links = find_links(&html, url)?;
+		for link in links {
+			crawl_recursive(&link, depth + 1, max_depth, visited, save_path)?;
+		}
+	}
+	
+	Ok(())
+}
+
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+	use std::collections::HashSet;
+	
+	let args = Args::parse();
+	
+	if args.recursive {
+		println!("Starting recursive crawl (max depth: {})", args.level);
+		let mut visited = HashSet::new();
+		crawl_recursive(&args.url, 0, args.level, &mut visited, &args.path)?;
+		println!("\nCrawl complete! Visited {} pages", visited.len());
+	} else {
+		println!("Fetching: {}", args.url);
+		let html = fetch_html(&args.url)?;
+		println!("Downloaded {} bytes", html.len());
+		
+		let images = find_images(&html, &args.url)?;
+		let valid_images: Vec<String> = images.into_iter()
+			.filter(|url| is_valid_image(url))
+			.collect();
+		
+		println!("Found {} valid images:", valid_images.len());
+		for img_url in &valid_images {
+			println!("  {}", img_url);
+			download_image(img_url, &args.path)?;
+		}
+	}
+
 	Ok(())
 }
