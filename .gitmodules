@@ -1,3 +1,6 @@
 [submodule "Arachnida"]
 	path = Arachnida
 	url = https://github.com/goncalo1021pt/Arachnida.git
+[submodule "ft_otp"]
+	path = ft_otp
+	url = https://github.com/goncalo1021pt/ft_opt.git
