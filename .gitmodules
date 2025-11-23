@@ -4,3 +4,6 @@
 [submodule "ft_otp"]
 	path = ft_otp
 	url = https://github.com/goncalo1021pt/ft_otp.git
+[submodule "ft_onion"]
+	path = ft_onion
+	url = git@github.com:goncalo1021pt/ft_onion.git
