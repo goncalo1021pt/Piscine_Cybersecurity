@@ -7,3 +7,6 @@
 [submodule "ft_onion"]
 	path = ft_onion
 	url = git@github.com:goncalo1021pt/ft_onion.git
+[submodule "rev_me"]
+	path = rev_me
+	url = git@github.com:goncalo1021pt/rev_me.git
